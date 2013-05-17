@@ -1,4 +1,30 @@
 // vim: set foldmethod=marker filetype=cpp:
+
+// Pin layout of the colorimeter:  {{{
+// D10	Enable for main sensor (should always be on).
+#define SENSOR_MAIN 10
+// D2	Enable for orange sensor.
+#define SENSOR_ORANGE 2
+// D3	Enable for white sensor.
+#define SENSOR_WHITE 3
+
+// D9	Enable for orange LED.
+#define LED_ORANGE 9
+// D8	Enable for white LED.
+#define LED_WHITE 8
+
+// D4	Count from main sensor.
+#define COUNT_MAIN 4
+// D5	Count from reference sensors (only one must be enabled).
+#define COUNT_REF 5
+
+// A4 + A5: I2C pins; LCD shield connected to it.
+
+// Enable pins are active by setting them to output low; inactive by setting
+// them to input.  So all are set to low and toggling is done by changing
+// the pin direction.
+// }}}
+
 // Includes. {{{
 #include <Wire.h>
 #include <Adafruit_RGBLCDShield.h>
@@ -6,16 +32,6 @@
 // }}}
 
 Adafruit_RGBLCDShield lcd;
-
-// How to use the menu: {{{
-//MenuItem (one) {}
-//char *subnames[] = {"One", "Off", "On"};
-//action *subactions[] = {&one, &one, &one};
-//Menu <3> submenu (subnames, subactions);
-//char *names[] = {"Een", "Twee"};
-//action *actions[] = {&one, &submenu};
-//Menu <2> menu (names, actions);
-// }}}
 
 void readFreq (uint32_t ms, uint32_t &result0, uint32_t &result1)	// {{{
 // This function reads the frequency of the signal on pins 4 (timer 0 input t0) and 5 (timer 1 input t1).
@@ -125,40 +141,75 @@ void readFreq (uint32_t ms, uint32_t &result0, uint32_t &result1)	// {{{
 	result1 = ((uint32_t)overflow1 << 16 | (uint32_t)low_result1) * 1000 / ms;
 }	// }}}
 
-//MenuItem (measure)	// {{{
-//{
-	// TODO: Switch on LED and sensor.
-	// Switch on LED.
+void setOrange ()
+{
+	pinMode (SENSOR_WHITE, INPUT);
+	pinMode (LED_WHITE, INPUT);
+	pinMode (SENSOR_ORANGE, OUTPUT);
+	pinMode (LED_ORANGE, OUTPUT);
+}
 
-	// wait for LED to stabalize.
-//	delay (100);
-//	uint32_t v = readFreq (500);
-//	// Print value to screen.
-//	lcd.clear ();
-//	lcd.print ("Freq: ");
-//	lcd.print (v);
-//	lcd.print (" Hz");
-//	// Keep it on screen until the button is released.
-//	while (lcd.readButtons ()) {}
-//}	// }}}
+void setWhite ()
+{
+	pinMode (SENSOR_ORANGE, INPUT);
+	pinMode (LED_ORANGE, INPUT);
+	pinMode (SENSOR_WHITE, OUTPUT);
+	pinMode (LED_WHITE, OUTPUT);
+}
 
-// Menu {{{
-//char *names[] = {"Measure"};
-//action *actions[] = {&measure};
-//Menu <1> menu (names, actions);
-// }}}
+void setDark ()
+{
+	pinMode (SENSOR_WHITE, INPUT);
+	pinMode (LED_WHITE, INPUT);
+	pinMode (SENSOR_ORANGE, INPUT);
+	pinMode (LED_ORANGE, INPUT);
+}
 
 void setup () {
+	Serial.begin(9600);
        	lcd.begin (16, 2);
-	pinMode (4, OUTPUT);
-	digitalWrite (4, LOW);
+	pinMode (SENSOR_MAIN, OUTPUT);
+	digitalWrite (SENSOR_MAIN, LOW);
+	digitalWrite (SENSOR_ORANGE, LOW);
+	digitalWrite (SENSOR_WHITE, LOW);
+	digitalWrite (LED_ORANGE, LOW);
+	digitalWrite (LED_WHITE, LOW);
+	setDark ();
 }
 
 void loop () {
 	uint32_t c0, c1;
-	readFreq (500, c0, c1);
-	lcd.clear ();
-	lcd.print (c0);
-	lcd.setCursor (0, 1);
-	lcd.print (c1);
+	// Measure 10 seconds with orange light, then 10 seconds with white light.
+	setOrange ();
+	Serial.print ("Orange\n");
+	// Half a second per measurement, so 20 measurements.
+	for (uint8_t i = 0; i < 20; ++i)
+	{
+		readFreq (500, c0, c1);
+		Serial.print (c0);
+		Serial.print ("\t");
+		Serial.print (c1);
+		Serial.print ("\n");
+		lcd.clear ();
+		lcd.print (c0);
+		lcd.setCursor (0, 1);
+		lcd.print (c1);
+	}
+	setWhite ();
+	Serial.print ("White\n");
+	// Half a second per measurement, so 20 measurements.
+	for (uint8_t i = 0; i < 20; ++i)
+	{
+		readFreq (500, c0, c1);
+		Serial.print (c0);
+		Serial.print ("\t");
+		Serial.print (c1);
+		Serial.print ("\n");
+		lcd.clear ();
+		lcd.print (c0);
+		lcd.setCursor (0, 1);
+		lcd.print (c1);
+		// Allow the serial port to catch up.
+	}
+	delay (100);
 }
