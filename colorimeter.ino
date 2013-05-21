@@ -4,14 +4,14 @@
 // D10	Enable for main sensor (should always be on).
 #define SENSOR_MAIN 10
 // D2	Enable for orange sensor.
-#define SENSOR_COD 2
+#define SENSOR_620 2
 // D3	Enable for white sensor.
-#define SENSOR_NEPH 3
+#define SENSOR_WHITE 3
 
 // D9	Enable for orange LED.
-#define LED_COD 9
+#define LED_620 9
 // D8	Enable for white LED.
-#define LED_NEPH 8
+#define LED_WHITE 8
 
 // D4	Count from main sensor.
 #define COUNT_MAIN 4
@@ -25,6 +25,12 @@
 // the pin direction.
 // }}}
 
+enum SourceNames {	// {{{
+	SOURCE_NONE,
+	SOURCE_WHITE,
+	SOURCE_620
+}; // }}}
+
 // Includes. {{{
 #include <Wire.h>
 #include <Adafruit_RGBLCDShield.h>
@@ -32,33 +38,114 @@
 #include <DuplexFrequencyCounter.h>
 // }}}
 
+// Globals.  {{{
 Adafruit_RGBLCDShield lcd;
-
-// Hardware setup functions. {{{
-void setCOD ()	// {{{
-{
-	pinMode (SENSOR_NEPH, INPUT);
-	pinMode (LED_NEPH, INPUT);
-	pinMode (SENSOR_COD, OUTPUT);
-	pinMode (LED_COD, OUTPUT);
-}	// }}}
-
-void setNeph ()	// {{{
-{
-	pinMode (SENSOR_COD, INPUT);
-	pinMode (LED_COD, INPUT);
-	pinMode (SENSOR_NEPH, OUTPUT);
-	pinMode (LED_NEPH, OUTPUT);
-}	// }}}
-
-void setDark ()	// {{{
-{
-	pinMode (SENSOR_NEPH, INPUT);
-	pinMode (LED_NEPH, INPUT);
-	pinMode (SENSOR_COD, INPUT);
-	pinMode (LED_COD, INPUT);
-}	// }}}
+uint32_t newsource = 0;
+float cod_zero_value = 0;
 // }}}
+
+void setSource (uint8_t source)	// {{{
+{
+	pinMode (SENSOR_WHITE, INPUT);
+	pinMode (SENSOR_620, INPUT);
+	pinMode (LED_WHITE, INPUT);
+	pinMode (LED_620, INPUT);
+
+	switch (source)
+	{
+	case SOURCE_NONE:
+		break;
+	case SOURCE_WHITE:
+		pinMode (SENSOR_WHITE, OUTPUT);
+		pinMode (LED_WHITE, OUTPUT);
+		break;
+	case SOURCE_620:
+		pinMode (SENSOR_620, OUTPUT);
+		pinMode (LED_620, OUTPUT);
+		break;
+	}
+	newsource = millis ();
+}	// }}}
+
+void waitForSource ()
+{
+	uint32_t wait = millis () - newsource;
+	if (wait < 10000)
+	{
+		lcd.clear ();
+		message ("Source warms up", "Please wait");
+		delay (10000 - wait);
+	}
+}
+
+float getSensor ()	// {{{
+{
+	uint32_t sensor, ref;
+	readFreq (500, sensor, ref);
+	return (float)sensor / ref;
+}	// }}}
+
+MenuItem (COD_zero)	// {{{
+{
+	waitForSource ();
+	cod_zero_value = getSensor ();
+	return true;
+}	// }}}
+
+MenuItem (COD_measure)	// {{{
+{
+	waitForSource ();
+	message ("Measuring");
+	float data = getSensor ();
+	// TODO: compute stuff.
+	message ("TODO:COD measure");
+	lcd.setCursor (0, 1);
+	lcd.print (data - cod_zero_value);
+	waitForButton ();
+	return false;
+}	// }}}
+
+MenuItem (COD_calibrate)	// {{{
+{
+	waitForSource ();
+	return false;
+}	// }}}
+
+Menu <3> COD_Menu ("COD", (char *[]){"Zero", "Measure", "Calibrate"}, (action *[]){&COD_zero, &COD_measure, &COD_calibrate});
+
+MenuItem (doCOD)	// {{{
+{
+	setSource (SOURCE_620);
+	return COD_Menu.run ();
+}	// }}}
+
+MenuItem (Neph_zero)	// {{{
+{
+	waitForSource ();
+	return true;
+}	// }}}
+
+MenuItem (Neph_measure)	// {{{
+{
+	waitForSource ();
+	return false;
+}	// }}}
+
+MenuItem (Neph_calibrate)	// {{{
+{
+	waitForSource ();
+	return false;
+}	// }}}
+
+Menu <3> Neph_Menu ("COD", (char *[]){"Zero", "Measure", "Calibrate"}, (action *[]){&COD_zero, &COD_measure, &COD_calibrate});
+
+MenuItem (doNeph)	// {{{
+{
+	setSource (SOURCE_WHITE);
+	return Neph_Menu.run ();
+}	// }}}
+
+Menu <2> MainMenu ("Main menu", (char *[]){"COD", "Neph"}, (action *[]){&doCOD, &doNeph});
 
 // Arduino main functions. {{{
 void setup () {	// {{{
@@ -66,47 +153,14 @@ void setup () {	// {{{
        	lcd.begin (16, 2);
 	pinMode (SENSOR_MAIN, OUTPUT);
 	digitalWrite (SENSOR_MAIN, LOW);
-	digitalWrite (SENSOR_COD, LOW);
-	digitalWrite (SENSOR_NEPH, LOW);
-	digitalWrite (LED_COD, LOW);
-	digitalWrite (LED_NEPH, LOW);
-	setDark ();
+	digitalWrite (SENSOR_620, LOW);
+	digitalWrite (SENSOR_WHITE, LOW);
+	digitalWrite (LED_620, LOW);
+	digitalWrite (LED_WHITE, LOW);
+	setSource (SOURCE_NONE);
 }	// }}}
 
 void loop () {	// {{{
-	uint32_t c0, c1;
-	// Measure 10 seconds with orange light, then 10 seconds with white light.
-	setCOD ();
-	Serial.print ("COD\n");
-	// Half a second per measurement, so 20 measurements.
-	for (uint8_t i = 0; i < 20; ++i)
-	{
-		readFreq (500, c0, c1);
-		Serial.print (c0);
-		Serial.print ("\t");
-		Serial.print (c1);
-		Serial.print ("\n");
-		lcd.clear ();
-		lcd.print (c0);
-		lcd.setCursor (0, 1);
-		lcd.print (c1);
-	}
-	setNeph ();
-	Serial.print ("Neph\n");
-	// Half a second per measurement, so 20 measurements.
-	for (uint8_t i = 0; i < 20; ++i)
-	{
-		readFreq (500, c0, c1);
-		Serial.print (c0);
-		Serial.print ("\t");
-		Serial.print (c1);
-		Serial.print ("\n");
-		lcd.clear ();
-		lcd.print (c0);
-		lcd.setCursor (0, 1);
-		lcd.print (c1);
-		// Allow the serial port to catch up.
-	}
-	delay (100);
+	MainMenu.run ();
 }	// }}}
 // }}}
