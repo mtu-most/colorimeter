@@ -160,7 +160,7 @@ MenuItem (COD_calibrate)	// {{{
 	return -1;
 }	// }}}
 
-Menu <3> COD_Menu ("COD", (char *[]){"Zero", "Measure", "Calibrate"}, (action *[]){&COD_zero, &COD_measure, &COD_calibrate});
+Menu <3> COD_Menu ("COD", (char const *[]){"Zero", "Measure", "Calibrate"}, (action *[]){&COD_zero, &COD_measure, &COD_calibrate});
 
 MenuItem (doCOD)	// {{{
 {
@@ -245,7 +245,7 @@ MenuItem (Neph_bulk)	// {{{
 	}
 }	// }}}
 
-Menu <4> Neph_Menu ("Neph", (char *[]){"Zero", "Measure", "Calibrate", "Bulk debug"}, (action *[]){&Neph_zero, &Neph_measure, &Neph_calibrate, &Neph_bulk});
+Menu <4> Neph_Menu ("Neph", (char const *[]){"Zero", "Measure", "Calibrate", "Bulk debug"}, (action *[]){&Neph_zero, &Neph_measure, &Neph_calibrate, &Neph_bulk});
 
 MenuItem (doNeph)	// {{{
 {
@@ -255,7 +255,7 @@ MenuItem (doNeph)	// {{{
 	return ret;
 }	// }}}
 
-Menu <2> MainMenu ("Main menu", (char *[]){"COD", "Neph"}, (action *[]){&doCOD, &doNeph});
+Menu <2> MainMenu ("Main menu", (char const *[]){"COD", "Neph"}, (action *[]){&doCOD, &doNeph});
 // }}}
 
 // Arduino main functions. {{{
