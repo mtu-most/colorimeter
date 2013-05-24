@@ -227,25 +227,7 @@ MenuItem (Neph_calibrate)	// {{{
 	return -1;
 }	// }}}
 
-MenuItem (Neph_bulk)	// {{{
-{
-	while (lcd.readButtons () != 0) {}
-	while (true)
-	{
-		if (lcd.readButtons () != 0)
-			return 0;
-		float data = getSensor ();
-		Serial.print (sensor);
-		Serial.print ("\t");
-		Serial.print (ref);
-		Serial.print ("\t");
-		Serial.print (data * 1e6);
-		Serial.print ("\n");
-		while (~UCSR0A & (1 << 5)) {}
-	}
-}	// }}}
-
-Menu <4> Neph_Menu ("Neph", (char const *[]){"Zero", "Measure", "Calibrate", "Bulk debug"}, (action *[]){&Neph_zero, &Neph_measure, &Neph_calibrate, &Neph_bulk});
+Menu <3> Neph_Menu ("Neph", (char const *[]){"Zero", "Measure", "Calibrate", "Bulk debug"}, (action *[]){&Neph_zero, &Neph_measure, &Neph_calibrate});
 
 MenuItem (doNeph)	// {{{
 {
@@ -255,7 +237,78 @@ MenuItem (doNeph)	// {{{
 	return ret;
 }	// }}}
 
-Menu <2> MainMenu ("Main menu", (char const *[]){"COD", "Neph"}, (action *[]){&doCOD, &doNeph});
+void debug_newsource (uint8_t s)
+{
+	setSource (s);
+	lcd.setCursor (0, 1);
+	lcd.print ("Source: ");
+	switch (s)
+	{
+	case SOURCE_NONE:
+		lcd.print ("None ");
+		break;
+	case SOURCE_620:
+		lcd.print ("620  ");
+		break;
+	case SOURCE_WHITE:
+		lcd.print ("White");
+		break;
+	}
+}
+
+MenuItem (debug)	// {{{
+{
+	measure_time = 100;
+	lcd.print ("Time: 0100 ms");
+	uint8_t s = SOURCE_NONE;
+	while (lcd.readButtons () != 0) {}
+	debug_newsource (s);
+	while (true)
+	{
+		uint8_t b = lcd.readButtons ();
+		switch (b)
+		{
+		case 0:
+			break;
+		case BUTTON_UP:
+			s = (s + 1) % 3;
+			debug_newsource (s);
+			while (lcd.readButtons () != 0) {}
+			break;
+		case BUTTON_DOWN:
+			s = (s - 1) % 3;
+			debug_newsource (s);;
+			while (lcd.readButtons () != 0) {}
+			break;
+		case BUTTON_LEFT:
+			setSource (SOURCE_NONE);
+			return 0;
+		case BUTTON_RIGHT:
+		case BUTTON_SELECT:
+			measure_time = readNum (6, 0, 4, 0, measure_time);
+			while (lcd.readButtons () != 0) {}
+		}
+		// Let the serial port catch up.
+		while (~UCSR0A & (1 << 5)) {}
+		// Send data to the port.
+		unsigned long m = millis ();
+		float data = getSensor ();
+		Serial.print (m);
+		Serial.print ("\t");
+		Serial.print (data * 1e6);
+		Serial.print ("\t");
+		Serial.print (sensor);
+		Serial.print ("\t");
+		Serial.print (ref);
+		Serial.print ("\t");
+		Serial.print (s);
+		Serial.print ("\t");
+		Serial.print (measure_time);
+		Serial.print ("\n");
+	}
+}	// }}}
+
+Menu <3> MainMenu ("Main menu", (char const *[]){"COD", "Neph", "Debug"}, (action *[]){&doCOD, &doNeph, &debug});
 // }}}
 
 // Arduino main functions. {{{
