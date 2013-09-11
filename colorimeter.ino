@@ -8,13 +8,13 @@
 #define POWER 11
 // D2	Enable for orange sensor. (purple)
 #define SENSOR_620 2
-// D3	Enable for white sensor. (green)
-#define SENSOR_WHITE 3
+// D3	Enable for IR sensor. (green)
+#define SENSOR_IR 3
 
 // D9	Enable for orange LED. (grey)
 #define LED_620 9
-// D8	Enable for white LED. (blue)
-#define LED_WHITE 8
+// D8	Enable for IR LED. (blue)
+#define LED_IR 8
 
 // D4	Count from main sensor. (black)
 #define COUNT_MAIN 4
@@ -30,7 +30,7 @@
 
 enum SourceNames {	// {{{
 	SOURCE_NONE,
-	SOURCE_WHITE,
+	SOURCE_IR,
 	SOURCE_620
 }; // }}}
 
@@ -49,13 +49,25 @@ Adafruit_RGBLCDShield lcd;
 static uint32_t newsource = 0;
 static uint32_t cNTU = 4000;	// centi-nephalometric turbidity units.
 static float cod_zero_value = ~0;
-static float neph_zero_value = ~0;
 static uint32_t sensor, ref;	// Make these global for debugging.
+
+// Nephalometry calibration values.
+struct Neph_cal {	// {{{
+	int num;
+	float x;
+	float y;
+	float xy;
+	float x2;
+	float y2;
+	float a;
+	float b;
+};	// }}}
+
 // The thing below is in eeprom, so the bytes must be directly addressable.
 typedef struct
 {
 	float cod;
-	float neph;
+	Neph_cal neph;
 } cal_t;
 static union {
 	cal_t c;
@@ -71,18 +83,18 @@ void writeCal ()	// {{{
 
 void setSource (uint8_t source)	// {{{
 {
-	pinMode (SENSOR_WHITE, INPUT);
+	pinMode (SENSOR_IR, INPUT);
 	pinMode (SENSOR_620, INPUT);
-	pinMode (LED_WHITE, INPUT);
+	pinMode (LED_IR, INPUT);
 	pinMode (LED_620, INPUT);
 
 	switch (source)
 	{
 	case SOURCE_NONE:
 		break;
-	case SOURCE_WHITE:
-		pinMode (SENSOR_WHITE, OUTPUT);
-		pinMode (LED_WHITE, OUTPUT);
+	case SOURCE_IR:
+		pinMode (SENSOR_IR, OUTPUT);
+		pinMode (LED_IR, OUTPUT);
 		break;
 	case SOURCE_620:
 		pinMode (SENSOR_620, OUTPUT);
@@ -170,74 +182,107 @@ MenuItem (doCOD)	// {{{
 	return ret;
 }	// }}}
 
-MenuItem (Neph_zero)	// {{{
-{
-	waitForSource ();
-	neph_zero_value = getSensor ();
-	return 1;
-}	// }}}
-
 MenuItem (Neph_measure)	// {{{
 {
 	static uint32_t index = 0;
-	// Don't measure without zero.
-	if (neph_zero_value == ~0)
-	{
-		message ("Please zero the", "instrument first");
-		waitForButton ();
-		return -1;
-	}
 	waitForSource ();
 	message ("Measuring");
-	float data = getSensor () - neph_zero_value;
-	float turb = data / cal.c.neph;
-	lcd.clear ();
-	lcd.print (turb, 3);
-	lcd.print (" NTU");
-	lcd.setCursor (0, 1);
-	lcd.print (index);
-	Serial.print (data, 3);
-	Serial.print ("\t");
-	Serial.print (turb, 3);
-	Serial.print ("\t");
-	Serial.print (index++);
-	Serial.print ("\t");
-	Serial.print (millis ());
-	Serial.print ("\n");
+	float data = getSensor ();
+	if (isnan (cal.c.neph.a))
+	{
+		lcd.clear ();
+		lcd.print ("Not calibrated");
+		lcd.setCursor (0, 1);
+		lcd.print ("Read: ");
+		int power = 0;
+		while (data < 1) {
+			power -= 1;
+			data *= 10;
+		}
+		while (data >= 10) {
+			power += 1;
+			data /= 10;
+		}
+		lcd.print (data);
+		lcd.print ("e");
+		lcd.print (power);
+	}
+	else
+	{
+		float turb = cal.c.neph.a * data + cal.c.neph.b;
+		lcd.clear ();
+		lcd.print (turb, 3);
+		lcd.print (" NTU");
+		lcd.setCursor (0, 1);
+		lcd.print ("index: ");
+		lcd.print (index);
+		Serial.print (index++);
+		Serial.print ("\t");
+		Serial.print (turb);
+		Serial.print ("\t");
+		Serial.print (millis ());
+		Serial.print ("\n");
+	}
 	waitForButton ();
 	return 0;
 }	// }}}
 
+MenuItem (Neph_recalibrate)	// {{{
+{
+	cal.c.neph.a = NAN;
+	cal.c.neph.b = NAN;
+	cal.c.neph.num = 0;
+	cal.c.neph.x = 0;
+	cal.c.neph.y = 0;
+	cal.c.neph.xy = 0;
+	cal.c.neph.x2 = 0;
+	cal.c.neph.y2 = 0;
+	writeCal ();
+	message ("Calibration", "erased.");
+	waitForButton ();
+	return 1;
+}	// }}}
+
 MenuItem (Neph_calibrate)	// {{{
 {
-	// Don't calibrate without zero.
-	if (neph_zero_value == ~0)
-	{
-		message ("Please zero the", "instrument first");
-		waitForButton ();
-		return -2;
-	}
 	message ("Calibration:", "0000.00 NTU     ");
 	cNTU = readNum (0, 1, 4, 2, cNTU);
 	waitForSource ();
 	message ("Calibrating");
-	float data = getSensor () - neph_zero_value;
-	cal.c.neph = data * 100 / cNTU;
-	writeCal ();
-	return -1;
+	float data = getSensor ();
+	cal.c.neph.x += data;
+	cal.c.neph.y += cNTU / 100.;
+	cal.c.neph.xy += data * (cNTU / 100.);
+	cal.c.neph.x2 += data * data;
+	cal.c.neph.y2 += (cNTU / 100.) * (cNTU / 100.);
+	++cal.c.neph.num;
+	if (cal.c.neph.num >= 4 && cal.c.neph.y2 != cal.c.neph.y * cal.c.neph.y)
+	{
+		cal.c.neph.a = (cal.c.neph.xy - cal.c.neph.x * cal.c.neph.y / cal.c.neph.num) / (cal.c.neph.x2 - cal.c.neph.x * cal.c.neph.x / cal.c.neph.num);
+		cal.c.neph.b = (cal.c.neph.y - cal.c.neph.a * cal.c.neph.x) / cal.c.neph.num;
+		writeCal ();
+		message ("Calibration read");
+		lcd.setCursor (0, 1);
+		lcd.print ("Error: ");
+		lcd.print ((cal.c.neph.y2 + cal.c.neph.a * cal.c.neph.a * cal.c.neph.x2 - 2 * cal.c.neph.a * cal.c.neph.xy - 2 * cal.c.neph.b * cal.c.neph.y + 2 * cal.c.neph.a * cal.c.neph.b + cal.c.neph.x) / cal.c.neph.num + cal.c.neph.b * cal.c.neph.b);
+	}
+	else
+		message ("Calibration read", "More needed");
+	waitForButton ();
+	return 0;
 }	// }}}
 
-Menu <3> Neph_Menu ("Neph", (char const *[]){"Zero", "Measure", "Calibrate", "Bulk debug"}, (action *[]){&Neph_zero, &Neph_measure, &Neph_calibrate});
+Menu <3> Neph_Menu ("Nephalometry", (char const *[]){"Measure", "Recalibrate", "Calibrate"}, (action *[]){&Neph_measure, &Neph_recalibrate, &Neph_calibrate});
 
 MenuItem (doNeph)	// {{{
 {
-	setSource (SOURCE_WHITE);
+	setSource (SOURCE_IR);
 	bool ret = Neph_Menu.run ();
 	setSource (SOURCE_NONE);
 	return ret;
 }	// }}}
 
-void debug_newsource (uint8_t s)
+void debug_newsource (uint8_t s) // {{{
 {
 	setSource (s);
 	lcd.setCursor (0, 1);
@@ -250,11 +295,11 @@ void debug_newsource (uint8_t s)
 	case SOURCE_620:
 		lcd.print ("620  ");
 		break;
-	case SOURCE_WHITE:
-		lcd.print ("White");
+	case SOURCE_IR:
+		lcd.print ("IR");
 		break;
 	}
-}
+}	// }}}
 
 MenuItem (debug)	// {{{
 {
@@ -276,7 +321,7 @@ MenuItem (debug)	// {{{
 			while (lcd.readButtons () != 0) {}
 			break;
 		case BUTTON_DOWN:
-			s = (s - 1) % 3;
+			s = (s - 1 + 3) % 3;
 			debug_newsource (s);;
 			while (lcd.readButtons () != 0) {}
 			break;
@@ -308,7 +353,7 @@ MenuItem (debug)	// {{{
 	}
 }	// }}}
 
-Menu <3> MainMenu ("Main menu", (char const *[]){"COD", "Neph", "Debug"}, (action *[]){&doCOD, &doNeph, &debug});
+Menu <3> MainMenu ("Main menu", (char const *[]){"COD", "Nephalometry", "Debug"}, (action *[]){&doCOD, &doNeph, &debug});
 // }}}
 
 // Arduino main functions. {{{
@@ -320,9 +365,9 @@ void setup () {	// {{{
 	digitalWrite (SENSOR_MAIN, LOW);
 	digitalWrite (POWER, HIGH);
 	digitalWrite (SENSOR_620, LOW);
-	digitalWrite (SENSOR_WHITE, LOW);
+	digitalWrite (SENSOR_IR, LOW);
 	digitalWrite (LED_620, LOW);
-	digitalWrite (LED_WHITE, LOW);
+	digitalWrite (LED_IR, LOW);
 	setSource (SOURCE_NONE);
 	for (uint8_t i = 0; i < sizeof (cal); ++i)
 		cal.bytes[i] = EEPROM.read (i);
