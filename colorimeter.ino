@@ -35,6 +35,8 @@ enum SourceNames {	// {{{
 }; // }}}
 
 // Includes. {{{
+#define SERIAL_LCD	// Output lcd display on serial port.
+
 #include <EEPROM.h>
 #include <Wire.h>
 #include <Adafruit_RGBLCDShield.h>
@@ -71,129 +73,137 @@ typedef struct
 } cal_t;
 static union {
 	cal_t c;
-	char bytes[sizeof (cal_t)];
+	char bytes[sizeof(cal_t)];
 } cal;
 // }}}
 
-void writeCal ()	// {{{
+void writeCal()	// {{{
 {
-	for (uint8_t i = 0; i < sizeof (cal); ++i)
-		EEPROM.write (i, cal.bytes[i]);
+	for (uint8_t i = 0; i < sizeof(cal); ++i)
+		EEPROM.write(i, cal.bytes[i]);
 }	// }}}
 
-void setSource (uint8_t source)	// {{{
+void setSource(uint8_t source)	// {{{
 {
-	pinMode (SENSOR_IR, INPUT);
-	pinMode (SENSOR_620, INPUT);
-	pinMode (LED_IR, INPUT);
-	pinMode (LED_620, INPUT);
+	pinMode(SENSOR_IR, INPUT);
+	pinMode(SENSOR_620, INPUT);
+	pinMode(LED_IR, INPUT);
+	pinMode(LED_620, INPUT);
 
 	switch (source)
 	{
 	case SOURCE_NONE:
 		break;
 	case SOURCE_IR:
-		pinMode (SENSOR_IR, OUTPUT);
-		pinMode (LED_IR, OUTPUT);
+		pinMode(SENSOR_IR, OUTPUT);
+		pinMode(LED_IR, OUTPUT);
 		break;
 	case SOURCE_620:
-		pinMode (SENSOR_620, OUTPUT);
-		pinMode (LED_620, OUTPUT);
+		pinMode(SENSOR_620, OUTPUT);
+		pinMode(LED_620, OUTPUT);
 		break;
 	}
-	newsource = millis ();
+	newsource = millis();
 }	// }}}
 
-void waitForSource ()	// {{{
+void waitForSource()	// {{{
 {
-	uint32_t wait = millis () - newsource;
+	uint32_t wait = millis() - newsource;
 	if (wait < WARMUP_TIME)
 	{
-		lcd.clear ();
-		message ("Source warms up", "Please wait");
-		delay (WARMUP_TIME - wait);
+		lcd.clear();
+		message("Source warms up", "Please wait");
+		delay(WARMUP_TIME - wait);
 	}
 }	// }}}
 
-float getSensor ()	// {{{
+float getSensor()	// {{{
 {
-	readFreq (measure_time, sensor, ref);
+	readFreq(measure_time, sensor, ref);
 	return (float)sensor / ref;
 }	// }}}
 
+uint8_t checkButton(bool block) { // {{{
+	while (true) {
+		uint8_t ret = lcd.readButtons();
+		if (ret != BUTTON_NONE || !block)
+			return ret;
+	}
+} // }}}
+
 // Menus, including implementation of the functions.  {{{
-MenuItem (COD_zero)	// {{{
+MenuItem(COD_zero)	// {{{
 {
-	waitForSource ();
-	cod_zero_value = getSensor ();
+	waitForSource();
+	cod_zero_value = getSensor();
 	return 1;
 }	// }}}
 
-MenuItem (COD_measure)	// {{{
+MenuItem(COD_measure)	// {{{
 {
 	static uint32_t index = 0;
 	// Don't measure without zero.
 	if (cod_zero_value == ~0)
 	{
-		message ("Please zero the", "instrument first");
-		waitForButton ();
+		message("Please zero the", "instrument first");
+		checkButton(true);
 		return -1;
 	}
-	waitForSource ();
-	message ("Measuring");
-	float data = getSensor ();
+	waitForSource();
+	message("Measuring");
+	float data = getSensor();
 	// TODO: compute concentration.
 	float trans = data / cod_zero_value;
-	float absorb = -log10 (trans);
-	lcd.clear ();
-	lcd.print ("T:");
-	lcd.print (trans, 3);
-	lcd.setCursor (8, 0);
-	lcd.print ("A:");
-	lcd.print (absorb, 3);
-	lcd.setCursor (0, 1);
-	lcd.print (index);
-	lcd.print (" ");
-	unsigned long m = millis ();
-	lcd.print (m);
-	Serial.print (absorb, 3);
-	Serial.print ("\t");
-	Serial.print (index++);
-	Serial.print ("\t");
-	Serial.print (m);
-	Serial.print ("\n");
-	waitForButton ();
+	float absorb = -log10(trans);
+	lcd.clear();
+	lcd.print("T:");
+	lcd.print(trans, 3);
+	lcd.setCursor(8, 0);
+	lcd.print("A:");
+	lcd.print(absorb, 3);
+	lcd.setCursor(0, 1);
+	lcd.print(index);
+	lcd.print(" ");
+	unsigned long m = millis();
+	lcd.print(m);
+	Serial.print(absorb, 3);
+	Serial.print("\t");
+	Serial.print(index++);
+	Serial.print("\t");
+	Serial.print(m);
+	Serial.print("\n");
+	checkButton(true);
 	return 0;
 }	// }}}
 
-MenuItem (COD_calibrate)	// {{{
+MenuItem(COD_calibrate)	// {{{
 {
-	waitForSource ();
+	waitForSource();
 	return -1;
 }	// }}}
 
-Menu <3> COD_Menu ("COD", (char const *[]){"Zero", "Measure", "Calibrate"}, (action *[]){&COD_zero, &COD_measure, &COD_calibrate});
+Menu <3> COD_Menu("COD", (char const *[]){"Zero", "Measure", "Calibrate"}, (action *[]){&COD_zero, &COD_measure, &COD_calibrate});
 
-MenuItem (doCOD)	// {{{
+MenuItem(doCOD)	// {{{
 {
-	setSource (SOURCE_620);
-	bool ret = COD_Menu.run ();
-	setSource (SOURCE_NONE);
+	setSource(SOURCE_620);
+	bool ret = COD_Menu.run(true);
+	setSource(SOURCE_NONE);
 	return ret;
 }	// }}}
 
-MenuItem (Neph_measure)	// {{{
+MenuItem(Neph_measure)	// {{{
 {
 	static uint32_t index = 0;
-	waitForSource ();
-	message ("Measuring");
-	float data = getSensor ();
-	if (isnan (cal.c.neph.a))
+	waitForSource();
+	message("Measuring");
+	float data = getSensor();
+	if (isnan(cal.c.neph.a))
 	{
-		lcd.clear ();
-		lcd.print ("Not calibrated");
-		lcd.setCursor (0, 1);
-		lcd.print ("Read: ");
+		lcd.clear();
+		lcd.print("Not calibrated");
+		lcd.setCursor(0, 1);
+		lcd.print("Read: ");
 		int power = 0;
 		while (data < 1) {
 			power -= 1;
@@ -203,31 +213,31 @@ MenuItem (Neph_measure)	// {{{
 			power += 1;
 			data /= 10;
 		}
-		lcd.print (data);
-		lcd.print ("e");
-		lcd.print (power);
+		lcd.print(data);
+		lcd.print("e");
+		lcd.print(power);
 	}
 	else
 	{
 		float turb = cal.c.neph.a * data + cal.c.neph.b;
-		lcd.clear ();
-		lcd.print (turb, 3);
-		lcd.print (" NTU");
-		lcd.setCursor (0, 1);
-		lcd.print ("index: ");
-		lcd.print (index);
-		Serial.print (index++);
-		Serial.print ("\t");
-		Serial.print (turb);
-		Serial.print ("\t");
-		Serial.print (millis ());
-		Serial.print ("\n");
+		lcd.clear();
+		lcd.print(turb, 3);
+		lcd.print(" NTU");
+		lcd.setCursor(0, 1);
+		lcd.print("index: ");
+		lcd.print(index);
+		Serial.print(index++);
+		Serial.print("\t");
+		Serial.print(turb);
+		Serial.print("\t");
+		Serial.print(millis());
+		Serial.print("\n");
 	}
-	waitForButton ();
+	checkButton(true);
 	return 0;
 }	// }}}
 
-MenuItem (Neph_recalibrate)	// {{{
+MenuItem(Neph_recalibrate)	// {{{
 {
 	cal.c.neph.a = NAN;
 	cal.c.neph.b = NAN;
@@ -237,19 +247,19 @@ MenuItem (Neph_recalibrate)	// {{{
 	cal.c.neph.xy = 0;
 	cal.c.neph.x2 = 0;
 	cal.c.neph.y2 = 0;
-	writeCal ();
-	message ("Calibration", "erased.");
-	waitForButton ();
+	writeCal();
+	message("Calibration", "erased.");
+	checkButton(true);
 	return 1;
 }	// }}}
 
-MenuItem (Neph_calibrate)	// {{{
+MenuItem(Neph_calibrate)	// {{{
 {
-	message ("Calibration:", "0000.00 NTU     ");
-	cNTU = readNum (0, 1, 4, 2, cNTU);
-	waitForSource ();
-	message ("Calibrating");
-	float data = getSensor ();
+	message("Calibration:", "0000.00 NTU     ");
+	cNTU = readNum(0, 1, 4, 2, cNTU);
+	waitForSource();
+	message("Calibrating");
+	float data = getSensor();
 	cal.c.neph.x += data;
 	cal.c.neph.y += cNTU / 100.;
 	cal.c.neph.xy += data * (cNTU / 100.);
@@ -260,120 +270,120 @@ MenuItem (Neph_calibrate)	// {{{
 	{
 		cal.c.neph.a = (cal.c.neph.xy - cal.c.neph.x * cal.c.neph.y / cal.c.neph.num) / (cal.c.neph.x2 - cal.c.neph.x * cal.c.neph.x / cal.c.neph.num);
 		cal.c.neph.b = (cal.c.neph.y - cal.c.neph.a * cal.c.neph.x) / cal.c.neph.num;
-		writeCal ();
-		message ("Calibration read");
-		lcd.setCursor (0, 1);
-		lcd.print ("Error: ");
-		lcd.print ((cal.c.neph.y2 + cal.c.neph.a * cal.c.neph.a * cal.c.neph.x2 - 2 * cal.c.neph.a * cal.c.neph.xy - 2 * cal.c.neph.b * cal.c.neph.y + 2 * cal.c.neph.a * cal.c.neph.b + cal.c.neph.x) / cal.c.neph.num + cal.c.neph.b * cal.c.neph.b);
+		writeCal();
+		message("Calibration read");
+		lcd.setCursor(0, 1);
+		lcd.print("Error: ");
+		lcd.print((cal.c.neph.y2 + cal.c.neph.a * cal.c.neph.a * cal.c.neph.x2 - 2 * cal.c.neph.a * cal.c.neph.xy - 2 * cal.c.neph.b * cal.c.neph.y + 2 * cal.c.neph.a * cal.c.neph.b + cal.c.neph.x) / cal.c.neph.num + cal.c.neph.b * cal.c.neph.b);
 	}
 	else
-		message ("Calibration read", "More needed");
-	waitForButton ();
+		message("Calibration read", "More needed");
+	checkButton(true);
 	return 0;
 }	// }}}
 
-Menu <3> Neph_Menu ("Nephalometry", (char const *[]){"Measure", "Recalibrate", "Calibrate"}, (action *[]){&Neph_measure, &Neph_recalibrate, &Neph_calibrate});
+Menu <3> Neph_Menu("Nephalometry", (char const *[]){"Measure", "Recalibrate", "Calibrate"}, (action *[]){&Neph_measure, &Neph_recalibrate, &Neph_calibrate});
 
-MenuItem (doNeph)	// {{{
+MenuItem(doNeph)	// {{{
 {
-	setSource (SOURCE_IR);
-	bool ret = Neph_Menu.run ();
-	setSource (SOURCE_NONE);
+	setSource(SOURCE_IR);
+	bool ret = Neph_Menu.run(true);
+	setSource(SOURCE_NONE);
 	return ret;
 }	// }}}
 
-void debug_newsource (uint8_t s) // {{{
+void debug_newsource(uint8_t s) // {{{
 {
-	setSource (s);
-	lcd.setCursor (0, 1);
-	lcd.print ("Source: ");
+	setSource(s);
+	lcd.setCursor(0, 1);
+	lcd.print("Source: ");
 	switch (s)
 	{
 	case SOURCE_NONE:
-		lcd.print ("None ");
+		lcd.print("None ");
 		break;
 	case SOURCE_620:
-		lcd.print ("620  ");
+		lcd.print("620  ");
 		break;
 	case SOURCE_IR:
-		lcd.print ("IR");
+		lcd.print("IR");
 		break;
 	}
 }	// }}}
 
-MenuItem (debug)	// {{{
+MenuItem(debug)	// {{{
 {
 	measure_time = 100;
-	lcd.print ("Time: 0100 ms");
+	lcd.print("Time: 0100 ms");
 	uint8_t s = SOURCE_NONE;
-	while (lcd.readButtons () != 0) {}
-	debug_newsource (s);
+	while (lcd.readButtons() != 0) {}
+	debug_newsource(s);
 	while (true)
 	{
-		uint8_t b = lcd.readButtons ();
+		uint8_t b = lcd.readButtons();
 		switch (b)
 		{
 		case 0:
 			break;
 		case BUTTON_UP:
 			s = (s + 1) % 3;
-			debug_newsource (s);
-			while (lcd.readButtons () != 0) {}
+			debug_newsource(s);
+			while (lcd.readButtons() != 0) {}
 			break;
 		case BUTTON_DOWN:
 			s = (s - 1 + 3) % 3;
-			debug_newsource (s);;
-			while (lcd.readButtons () != 0) {}
+			debug_newsource(s);;
+			while (lcd.readButtons() != 0) {}
 			break;
 		case BUTTON_LEFT:
-			setSource (SOURCE_NONE);
+			setSource(SOURCE_NONE);
 			return 0;
 		case BUTTON_RIGHT:
 		case BUTTON_SELECT:
-			measure_time = readNum (6, 0, 4, 0, measure_time);
-			while (lcd.readButtons () != 0) {}
+			measure_time = readNum(6, 0, 4, 0, measure_time);
+			while (lcd.readButtons() != 0) {}
 		}
 		// Let the serial port catch up.
 		while (~UCSR0A & (1 << 5)) {}
 		// Send data to the port.
-		unsigned long m = millis ();
-		float data = getSensor ();
-		Serial.print (m);
-		Serial.print ("\t");
-		Serial.print (data * 1e6);
-		Serial.print ("\t");
-		Serial.print (sensor);
-		Serial.print ("\t");
-		Serial.print (ref);
-		Serial.print ("\t");
-		Serial.print (s);
-		Serial.print ("\t");
-		Serial.print (measure_time);
-		Serial.print ("\n");
+		unsigned long m = millis();
+		float data = getSensor();
+		Serial.print(m);
+		Serial.print("\t");
+		Serial.print(data * 1e6);
+		Serial.print("\t");
+		Serial.print(sensor);
+		Serial.print("\t");
+		Serial.print(ref);
+		Serial.print("\t");
+		Serial.print(s);
+		Serial.print("\t");
+		Serial.print(measure_time);
+		Serial.print("\n");
 	}
 }	// }}}
 
-Menu <3> MainMenu ("Main menu", (char const *[]){"COD", "Nephalometry", "Debug"}, (action *[]){&doCOD, &doNeph, &debug});
+Menu <3> MainMenu("Main menu", (char const *[]){"COD", "Nephalometry", "Debug"}, (action *[]){&doCOD, &doNeph, &debug});
 // }}}
 
 // Arduino main functions. {{{
-void setup () {	// {{{
+void setup() {	// {{{
 	Serial.begin(9600);
-	lcd.begin (16, 2);
-	pinMode (SENSOR_MAIN, OUTPUT);
-	pinMode (POWER, OUTPUT);
-	digitalWrite (SENSOR_MAIN, LOW);
-	digitalWrite (POWER, HIGH);
-	digitalWrite (SENSOR_620, LOW);
-	digitalWrite (SENSOR_IR, LOW);
-	digitalWrite (LED_620, LOW);
-	digitalWrite (LED_IR, LOW);
-	setSource (SOURCE_NONE);
-	for (uint8_t i = 0; i < sizeof (cal); ++i)
-		cal.bytes[i] = EEPROM.read (i);
+	lcd.begin(16, 2);
+	pinMode(SENSOR_MAIN, OUTPUT);
+	pinMode(POWER, OUTPUT);
+	digitalWrite(SENSOR_MAIN, LOW);
+	digitalWrite(POWER, HIGH);
+	digitalWrite(SENSOR_620, LOW);
+	digitalWrite(SENSOR_IR, LOW);
+	digitalWrite(LED_620, LOW);
+	digitalWrite(LED_IR, LOW);
+	setSource(SOURCE_NONE);
+	for (uint8_t i = 0; i < sizeof(cal); ++i)
+		cal.bytes[i] = EEPROM.read(i);
 }	// }}}
 
-void loop () {	// {{{
-	MainMenu.run ();
+void loop() {	// {{{
+	MainMenu.run(true);
 }	// }}}
 // }}}
